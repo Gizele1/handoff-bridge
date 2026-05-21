@@ -22,6 +22,12 @@ description: 以 issue 为单位的跨 session handoff skill：在准备 /clear 
 - Git issue 负责问题定义、讨论结论、验收标准。
 - 代码、diff、测试输出是事实来源；handoff 只放指针和摘要。
 
+`HANDOFF.md` 和 `todolist.md` 的边界口诀：
+
+- **抽象层不同**：`todolist` 是操作层（原子步骤 + 验收命令），`HANDOFF` 是上下文层（位置坐标 + 指针 + 失败路径）。
+- **失败路径只入 HANDOFF**：从 `todolist` 划掉/删掉的已排除方案，必须搬进 `HANDOFF.next_steps.已排除`，否则下一轮会重复试错。
+- **HANDOFF 不复述步骤**：`todolist` 的 5 条原子步骤在 `HANDOFF` 里只对应一句"步骤 3/5"。HANDOFF 涨到 80 行就是这条没守住。
+
 ## 最重要的一条
 
 `HANDOFF.md` 不是日志，也不是聊天纪要。它只保留下次恢复时还会影响判断的内容：当前做到哪一步、试过但失败了什么、下一步从哪里接、还有什么没拍板。
@@ -63,6 +69,14 @@ session 还在跑、用户没有要切断上下文 —— 不要主动写 handof
 | `HANDOFF.md` | 当前 issue 的动态状态、失败路径、下一步入口 | 跨 session |
 | `todolist.md` | 当前 issue 的步骤、验收命令、阻塞项 | 当前回合 |
 | `MEMORY.md` 等长期画像 | 跨项目仍有效的决策指针 | 长期 |
+
+`HANDOFF` 和 `todolist` 都会出现"进行中 / 下一步 / 阻塞"这类字眼，含义不同别混：
+
+| 字段 | 在 `todolist.md` 里 | 在 `HANDOFF.md` 里 |
+|---|---|---|
+| 进行中 | 某一行的状态标签（`状态: in-progress`） | 整个 issue 的位置坐标（"步骤 3/5，正在补 X 单测"） |
+| 下一步 | 待执行的下一条具体命令 | 下次 session 的入口指针（粒度更粗） |
+| 阻塞 | 某步卡住的原因（行级） | issue 级的悬而未决项，常带"等用户/外部 X" |
 
 ---
 
@@ -126,6 +140,7 @@ grep -E '状态.*:\s*(pending|in-progress|blocked)' todolist.md | head -1
 - `last_session_id` 整段换掉，写本轮的。
 - `decisions` 只留会跨 session 继续有效的决策。
 - `next_steps` 整段换掉，写下次入口，尤其保留 `已排除`。
+- 本轮从 `todolist.md` 删掉/划掉的"试过但不通"的方案，**必须**搬进 `next_steps.已排除` 并补一句原因。todolist 不留这条，HANDOFF 也不留 = 下一轮 Claude 会重新提议同一条死路。
 - 悬念区最多 5 条，超过就删最老的。
 
 ### A3. 顺手把 `todolist.md` 同步一下
