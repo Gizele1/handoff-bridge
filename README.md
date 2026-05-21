@@ -1,63 +1,77 @@
 # handoff-bridge
 
-> 跨 Claude Code session 的"收尾 + 恢复"skill。让多天、多次 `/clear` 的工作流不再丢上下文。
+每次 `/clear` 之后 Claude 就失忆。跨好几天的活儿做完一轮，下次回来不知道走到哪了——上次哪个 PR 在等审、retry 上限定了没、有没有半截的迁移，全靠翻 git log 和 chat history 拼。烦了一阵之后弄出来了这个。
 
-## Why
+思路挺朴素：用 `HANDOFF.md` 加 `todolist.md` 兜住跨 session 的状态。收尾的时候 Claude 顺手把它们写一下，下次进来第一句话先把它们读一遍。
 
-Claude Code 的单次 session 上下文是有限的——长任务跑几天总要 `/clear`，每次 `clear` 之后新 session 就像失忆。常见的痛点：
+## 收尾长这样
 
-- 上次走到哪一步？哪个 PR 在等审？哪个决策是已拍板的？要翻 git log 和 chat 历史拼凑
-- 项目里的长期规则（CLAUDE.md / `.ruler/*` 等）和当下的临时状态混在一起，越攒越乱
-- 收尾随手记几句，下次自己都看不懂
+```
+我：今天到这儿了，handoff 一下
 
-`handoff-bridge` 把这件事变成两个清晰流程：
+Claude：看了下——有未提交改动 + todolist 还剩两个 in-progress，准备更新 HANDOFF。
 
-- **收尾**（流程 A）：自动判定是否需要写交接、按固定 schema 生成增量、做软校验（结构 / 体积 / 黑名单）、再提示 commit
-- **恢复**（流程 B）：新会话第一条自动读 `HANDOFF.md` + `todolist.md`，3–5 行恢复报告，确认后继续
+预览（last_session_id 和 next_steps 整段换，decisions 加一条）：
+  ## last_session_id
+  - session_id: 2026-05-21-oauth-refactor
+  - branch: feat/oauth-migration
+  ...
+  ## next_steps
+  - 进行中：OAuth 回调签名验证（步骤 3/5）
+  - 下一步：补 retry 用例 + 跑集成测试
 
-核心约束：**HANDOFF 只放跨会话仍生效的动态状态**（任务定位 / 悬念 / 下次入口）。业务规则和长期约束走项目规则文件，黑名单 grep 会在收尾时拦截误写。
+校验都过了。要 commit 吗?
 
-## 安装
+我：commit，先别 push
+```
 
-把仓库克隆到下列任一位置：
+它会自检三件事：有没有未提交改动、todolist 还有没有活、最近几轮对话有没有"等我确认"这类悬念。三个都没中就直接告诉你"没啥要交接的"，省得你看一堆空话。
+
+## 恢复长这样
+
+```
+我：恢复上次
+
+Claude：上次状态:
+- session 2026-05-21-oauth-refactor，分支 feat/oauth-migration
+- 进行中：OAuth 回调签名验证 3/5
+- 下一步：补 retry 用例 + 跑集成测试
+- 悬念：retry 上限你还没定，3 还是 5
+
+按这个继续?
+
+我：定 3，继续
+```
+
+3-5 行的摘要，没点头之前它不会自己动手。
+
+## 怎么触发
+
+收尾："结束这轮"、"交接"、"handoff"，或者 `/clear` 之前都行。
+恢复："恢复上次"、"继续昨天的"、"resume"，或者新会话第一句直接问。
+
+## 装
 
 ```bash
-# 用户级（全局可用）
+# 全局
 git clone https://github.com/Gizele1/handoff-bridge.git ~/.claude/skills/handoff-bridge
 
-# 项目级（仅当前项目可用，推荐）
+# 只在当前项目用
 git clone https://github.com/Gizele1/handoff-bridge.git .claude/skills/handoff-bridge
 ```
 
-Claude Code 启动时会自动识别 `SKILL.md` 的 frontmatter，无需额外配置。
+Claude Code 启动会自己扫到，不用配置。
 
-## 怎么用
+## 接到新项目里大概要改这几处
 
-直接对 Claude Code 说下面任意一句即可触发：
+`SKILL.md` 末尾写得细，这里只提一下：基线分支名（不一定叫 main）、时区（默认按 +08:00 写的）、commit 规范。
 
-| 想做什么 | 说什么 |
-|---|---|
-| 收尾本轮、准备 `/clear` | `结束这轮` / `交接` / `handoff` |
-| 新会话恢复上次状态 | `恢复上次` / `继续昨天的` / `resume` |
+要紧的是 A4 那个 grep 黑名单——把项目里"不该出现在 HANDOFF 的长期规则关键词"列进去。IoT 项目可能是蓝牙协议字段名，支付项目可能是密钥字段名。这步漏了之后它就会顺着对话漂到 HANDOFF 里，越积越乱，最后整个文件没法看。
 
-Claude 会按 `SKILL.md` 里的两条流程走，全程跟你确认，不会自作主张提交或改长期规则。
+## 一些不做的事
 
-## 自定义
+不动 `CLAUDE.md` 和 `.ruler/*` 之类的长期规则文件——要改自己改。不替你 commit，只问。还有跟多 agent 内部那种 stage handoff 不是一回事，别搞混了。
 
-skill 是通用模板，首次接入新项目时按需调以下几处（详见 `SKILL.md` 末尾的"自定义建议"）：
+---
 
-- 基线分支名（`main` / `master` / `develop` ...）
-- 时区偏移
-- A4 黑名单关键词（你项目里"绝对不该进入 HANDOFF 的长期规则关键词"）
-- 提交规范（Conventional Commits / 自定义格式）
-
-## 设计取舍
-
-- **软校验而非硬阻塞**：所有 grep 检查在收尾时跑，失败就提示用户修，不会卡死流程
-- **不自动 commit**：仅询问，按你项目的提交规范走
-- **不碰长期规则**：本 skill 只写 `HANDOFF.md` 和 `todolist.md`，不动 `CLAUDE.md` / `.ruler/*` 等长期规则文件
-- **不和 multi-agent stage handoff 混用**：那是 agent 间的中间产物，和跨 session 是两件事
-
-## License
-
-MIT — 详见 [`LICENSE`](LICENSE)。
+MIT.
